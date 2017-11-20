@@ -58,6 +58,7 @@ const std::string short_message = "hello world!";
 
 // const long thread_count = 2;
 const std::string payload = "{\"c_ids\":[\"34\"],\"ver\":\"\"}";
+const std::string ackpayload = "{\"c_ids\":[\"35\"],\"ver\":\"1.0\"}";
 // Timeout for polling in milliseconds
 const long max_poll_timeout = 1000*60*100;
 const long thread_count = 1000;
@@ -220,10 +221,11 @@ void client_func(std::string filename, long start, long end){
 		for(int i = 0; i < thread_count; i++){
 			if(poller.has_input(*dealer[i])){
 				dealer[i]->receive(zmsg);
-				if(zmsg.parts() == 2 && zmsg.size(0)==2 && zmsg.size(1)==620){
+				if(zmsg.parts() == 2 )//&& zmsg.size(0)==2 && zmsg.size(1)==620){
+				{
 					++processed;
 					 zmqpp::message message;
-					 zmqpp::message out_msg(std::to_string(12));
+					 zmqpp::message out_msg(std::to_string(12), ackpayload);
 					 dealer[i]->send(out_msg);
 				}
 			}
