@@ -1,0 +1,1019 @@
+//g++ -g -std=c++11 zmqClient.cpp -o zm -lzmq -lzmqpp -lboost_unit_test_framework -lpthread -lboost_system -lboost_thread
+
+#include <iostream>
+#include <string>
+#include <mutex>
+#include <vector>
+#include <deque>
+#include <condition_variable>
+#include <thread>
+#include <zmqpp/zmqpp.hpp>
+#include <zmqpp/curve.hpp>
+#include <zmqpp/proxy.hpp>
+#include <zmqpp/message.hpp>
+#include <boost/progress.hpp>
+#include <boost/timer.hpp>
+#include <fstream>
+#include <stdio.h>
+#include <string.h>
+// #include "base64.h"
+// #include <stdio.h>
+// #include <stdlib.h>
+// #include <getopt.h>
+#ifndef _BSD_SOURCE
+#define _BSD_SOURCE
+#endif
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include<stdio.h> 
+#include<stdlib.h>  
+#include<sys/types.h>  
+#include<sys/socket.h>  
+#include<string.h>  
+#include<netinet/in.h>  
+#include<netdb.h>
+  
+#include <cstdlib>
+#include <string>
+#include <iostream>
+#include <thread>
+#include <signal.h>
+
+#include <zmqpp/zmqpp.hpp>
+#include <zmqpp/curve.hpp>
+#include <zmqpp/proxy.hpp>
+#include <zmqpp/message.hpp>
+
+//#include <cpp_redis/cpp_redis>
+#include <boost/test/unit_test.hpp>
+
+#include <boost/thread.hpp>
+#include <boost/timer.hpp>
+#include <openssl/evp.h>
+#include <openssl/aes.h>
+#include <openssl/bio.h>
+#include <openssl/buffer.h>
+
+#define BUF_SIZE 4096
+  
+int get_request(char * url, int port, char *json);
+int isValidIP(char * ip);
+int parseHeader(char * header);
+char * splitKeyValue(char * line, int index);
+void openFile();
+
+FILE * fileptr;
+char keys[][25] = {"Date: ", "Hostname: ", "Location: ", "Content-Type: "};
+char status[4] = {0, 0, 0, 0};
+char contentFileType[100];
+char path[1000];
+
+int registration(char* urlString, char* json, int portN) {  
+ // struct sockaddr_in addr, cl_addr;  
+ int sockfd, ret; 
+ // struct hostent * server;
+ char * url, * temp;
+ int portNumber;
+ // char * fileName;
+ char status_ok[] = "OK";
+ char buffer[BUF_SIZE]; 
+ // char http_not_found[] = "HTTP/1.0 404 Not Found";
+ char http_ok[] = "HTTP/1.0 200 OK";
+ // char location[] = "Location: ";
+ // char contentType[] = "Content-Type: ";
+ // int sPos, ePos;
+
+ // if (argc < 3) {
+ //  printf("usage: [URL] [port number]\n");
+ //  exit(1);  
+ // }
+
+ url = urlString;//argv[1];
+ portNumber = portN;//atoi(argv[2]);
+
+ //checking the protocol specified
+ if ((temp = strstr(url, "http://")) != NULL) {
+  url = url + 7;
+ } else if ((temp = strstr(url, "https://")) != NULL) {
+  url = url + 8;
+ }
+
+ //checking the port number
+ if (portNumber > 65536 || portNumber < 0) {
+  printf("Invalid Port Number!");
+  exit(1);
+ }
+ 
+ sockfd = get_request(url, portN, json); 
+
+ memset(&buffer, 0, sizeof(buffer));
+ ret = recv(sockfd, buffer, BUF_SIZE, 0);  
+ if (ret < 0) {  
+  printf("Error receiving HTTP status!\n");   
+  return -1;
+ } else {
+  printf("%s\n", buffer);
+ 	printf("Recv: %lu bytes\n", strlen(buffer) );
+  if ((temp = strstr(buffer, http_ok)) != NULL) {
+   send(sockfd, status_ok, strlen(status_ok), 0);
+  } else {
+   close(sockfd);
+   return 0;
+  }
+ }
+
+ // memset(&buffer, 0, sizeof(buffer)); 
+ // ret = recv(sockfd, buffer, BUF_SIZE, 0);  
+ // if (ret < 0) {  
+ //  printf("Error receiving HTTP header!\n");    
+ // } else {
+ //  printf("%s\n", buffer);
+ //  if (parseHeader(buffer) == 0) {
+ //   send(sockfd, status_ok, strlen(status_ok), 0);
+ //  } else {
+ //   printf("Error in HTTP header!\n");
+ //   close(sockfd);
+ //   return 0;
+ //  }
+ // } 
+
+ // //printf("file: [%s]\n", fileName);
+ // fileptr = fopen(path, "w");
+ // if (fileptr == NULL) {
+ //  printf("Error opening file!\n");
+ //  close(sockfd);
+ //  return 0;
+ // }
+
+ // memset(&buffer, 0, sizeof(buffer));
+ // while (recv(sockfd, buffer, BUF_SIZE, 0) > 0) { //receives the file
+ //  if ((strstr(contentFileType, "text/html")) != NULL) {
+ //   fprintf(fileptr, "%s", buffer);
+ //  } else {
+ //   fwrite(&buffer, sizeof(buffer), 1, fileptr);
+ //  }
+ //  memset(&buffer, 0, sizeof(buffer));
+ // }
+
+ // fclose(fileptr);
+ close(sockfd);
+
+ // openFile();
+
+ return 0;
+}
+
+
+int get_request(char * url, int port, char *json) {
+
+ int sockfd;//, bindfd;
+        char * ptr, * host;
+ char getrequest[1024];
+        struct sockaddr_in addr;
+ if (isValidIP(url)) { //when an IP address is given
+  // printf("-----------1\n");
+  sprintf(getrequest, "GET / HTTP/1.0\nHOST: %s\n\n", url);
+        } else { //when a host name is given
+  if ((ptr = strstr(url, "/")) == NULL) {
+   //when hostname does not contain a slash
+  // printf("-----------2\n");
+   sprintf(getrequest, "GET / HTTP/1.0\nHOST: %s\n\n", url);
+  } else {
+   //when hostname contains a slash, it is a path to file
+   strcpy(path, ptr);
+  
+          host = strtok(url, "/");
+            // printf("%s %s\n", url, host);
+   sprintf(getrequest, "GET %s?json=%s HTTP/1.0\nHOST: %s\n\n", path, json,url);
+   // printf("%s\n", getrequest);
+  }
+ } 
+
+ // creates a socket to the host
+ sockfd = socket(AF_INET, SOCK_STREAM, 0);
+ if (sockfd < 0) {  
+  printf("Error creating socket!\n");  
+  exit(1);  
+ }  
+ // printf("Socket created...\n");
+
+ memset(&addr, 0, sizeof(addr));  
+ addr.sin_family = AF_INET;  
+ addr.sin_addr.s_addr = inet_addr(url);
+ addr.sin_port = htons(port);
+
+ if (connect(sockfd, (struct sockaddr *) &addr, sizeof(addr)) < 0 ) {
+  printf("Connection Error!\n");
+  exit(1);
+ }
+ // printf("Connection successful...\n\n\n");
+ ptr = strtok(path, "/");
+ strcpy(path, ptr);
+ //printf("path=%s\n", path); 
+ //fileptr = fopen(path, "w");
+ //strcpy(fileName, path);
+ //sprintf(fileName, "%s", path);
+
+        //int optval = 1;
+        //setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
+
+ // writes the HTTP GET Request to the sockfd
+ write(sockfd, getrequest, strlen(getrequest));
+
+ return sockfd;
+}
+
+
+int isValidIP(char * ip) {
+ struct sockaddr_in addr;
+ int valid = inet_pton(AF_INET, ip, &(addr.sin_addr));
+ return valid != 0;
+}
+
+
+// int parseHeader(char * header) {
+//  //"Date: %sHostname: %s:%d\nLocation: %s\nContent-Type: %s\n\n"
+//  char * line, * key, * value;
+//  char temp[100];
+//  int i = 0;
+//  line = strtok(header, "\n");
+//  while (line != NULL) {
+//   //printf("%s\n", line);
+//   strcpy(temp, line);
+//   value = splitKeyValue(line, i);  
+//   if (i == 3) {   
+//    strcpy(contentFileType, value);
+//   }
+//   //printf("value=%s\n", value);
+//   line = strtok(NULL, "\n");
+//   i++; 
+//  }
+//  for (i = 0; i < 4; i++) {
+//   if (status[i] == 0) return 1;
+//   //printf("status[%d]=%d\n", i, status[i]);
+//  }
+//  return 0;
+// }
+
+// char * splitKeyValue(char * line, int index) {
+//  char * temp;
+//  if ((temp = strstr(line, keys[index])) != NULL) {
+//   temp = temp + strlen(keys[index]);
+//   status[index] = 1;
+//  }
+//  return temp;
+// }
+
+// void openFile() {
+//  char * temp;
+//  char command[100];
+//  char fileName[1000];
+//  strcpy(fileName, path);
+//  //printf("File Name: %s\n", fileName);
+//  //printf("Content Type: %s\n", contentFileType);
+//  if ((temp = strstr(contentFileType, "text/html")) != NULL) {
+//   if ((temp = strstr(fileName, ".txt")) != NULL) {
+//    sprintf(command, "gedit %s", fileName);
+//   } else {
+//    sprintf(command, "firefox %s", fileName);
+//   }
+//   system(command);
+//  } else if ((temp = strstr(contentFileType, "application/pdf")) != NULL) {
+//   sprintf(command, "acroread %s", fileName);
+//   system(command);
+//  } else {
+//   printf("The filetype %s is not supported. Failed to open %s!\n", contentFileType, fileName);
+//  }
+// }
+
+// size_t calcDecodeLength(const char* b64input) { //Calculates the length of a decoded string
+// 	size_t len = strlen(b64input),
+// 		padding = 0;
+
+// 	if (b64input[len-1] == '=' && b64input[len-2] == '=') //last two chars are =
+// 		padding = 2;
+// 	else if (b64input[len-1] == '=') //last char is =
+// 		padding = 1;
+
+// 	return (len*3)/4 - padding;
+// }
+
+// int Base64Decode(char* b64message, unsigned char** buffer, size_t* length) { //Decodes a base64 encoded string
+// 	BIO *bio, *b64;
+
+// 	int decodeLen = calcDecodeLength(b64message);
+// 	*buffer = (unsigned char*)malloc(decodeLen + 1);
+// 	(*buffer)[decodeLen] = '\0';
+
+// 	bio = BIO_new_mem_buf(b64message, -1);
+// 	b64 = BIO_new(BIO_f_base64());
+// 	bio = BIO_push(b64, bio);
+
+// 	BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); //Do not use newlines to flush buffer
+// 	*length = BIO_read(bio, *buffer, strlen(b64message));
+// 	assert(*length == decodeLen); //length should equal decodeLen, else something went horribly wrong
+// 	BIO_free_all(bio);
+
+// 	return (0); //success
+// }
+// int Base64Encode(const unsigned char* buffer, size_t length, char** b64text) { //Encodes a binary safe base 64 string
+// 	BIO *bio, *b64;
+// 	BUF_MEM *bufferPtr;
+
+// 	b64 = BIO_new(BIO_f_base64());
+// 	bio = BIO_new(BIO_s_mem());
+// 	bio = BIO_push(b64, bio);
+
+// 	BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); //Ignore newlines - write everything in one line
+// 	BIO_write(bio, buffer, length);
+// 	BIO_flush(bio);
+// 	BIO_get_mem_ptr(bio, &bufferPtr);
+// 	BIO_set_close(bio, BIO_NOCLOSE);
+// 	BIO_free_all(bio);
+
+// 	*b64text=(*bufferPtr).data;
+
+// 	return (0); //success
+// }
+// unsigned char *base64(const unsigned char *input, int length)
+// {
+// BIO *bmem, *b64;
+// BUF_MEM *bptr;
+
+// b64 = BIO_new(BIO_f_base64());
+// bmem = BIO_new(BIO_s_mem());
+// b64 = BIO_push(b64, bmem);
+// BIO_write(b64, input, length);
+// BIO_flush(b64);
+// BIO_get_mem_ptr(b64, &bptr);
+
+// unsigned char *buff = (unsigned char *)malloc(bptr->length);
+// memcpy(buff, bptr->data, bptr->length-1);
+// buff[bptr->length-1] = 0;
+
+// BIO_free_all(b64);
+
+// return buff;
+// }
+
+// unsigned char *unbase64(unsigned char *input, int length)
+// {
+// BIO *b64, *bmem;
+
+// unsigned char *buffer = (unsigned char *)malloc(length);
+// memset(buffer, 0, length);
+
+// b64 = BIO_new(BIO_f_base64());
+// bmem = BIO_new_mem_buf(input, length);
+// bmem = BIO_push(b64, bmem);
+
+// BIO_read(bmem, buffer, length);
+
+// BIO_free_all(bmem);
+
+// return buffer;
+// }
+// /**
+//  * Create a 256 bit key and IV using the supplied key_data. salt can be added for taste.
+//  * Fills in the encryption and decryption ctx objects and returns 0 on success
+//  **/
+// int aes_init(unsigned char *key_data, int key_data_len, unsigned char *salt, EVP_CIPHER_CTX *e_ctx, 
+//              EVP_CIPHER_CTX *d_ctx)
+// {
+//   int i, nrounds = 5;
+//   unsigned char key[32], iv[32];
+  
+//   /*
+//    * Gen key & IV for AES 256 CBC mode. A SHA1 digest is used to hash the supplied key material.
+//    * nrounds is the number of times the we hash the material. More rounds are more secure but
+//    * slower.
+//    */
+//   i = EVP_BytesToKey(EVP_aes_256_cbc(), EVP_sha1(), salt, key_data, key_data_len, nrounds, key, iv);
+//   if (i != 32) {
+//     printf("Key size is %d bits - should be 256 bits\n", i);
+//     return -1;
+//   }
+
+//   EVP_CIPHER_CTX_init(e_ctx);
+//   EVP_EncryptInit_ex(e_ctx, EVP_aes_256_cbc(), NULL, key, iv);
+//   EVP_CIPHER_CTX_init(d_ctx);
+//   EVP_DecryptInit_ex(d_ctx, EVP_aes_256_cbc(), NULL, key, iv);
+
+//   return 0;
+// }
+
+// /*
+//  * Encrypt *len bytes of data
+//  * All data going in & out is considered binary (unsigned char[])
+//  */
+// unsigned char *aes_encrypt(EVP_CIPHER_CTX *e, unsigned char *plaintext, int *len)
+// {
+//   /* max ciphertext len for a n bytes of plaintext is n + AES_BLOCK_SIZE -1 bytes */
+//   int c_len = *len + AES_BLOCK_SIZE, f_len = 0;
+//   unsigned char *ciphertext = (unsigned char *)malloc(c_len);
+
+//   /* allows reusing of 'e' for multiple encryption cycles */
+//   EVP_EncryptInit_ex(e, NULL, NULL, NULL, NULL);
+
+//   /* update ciphertext, c_len is filled with the length of ciphertext generated,
+//     *len is the size of plaintext in bytes */
+//   EVP_EncryptUpdate(e, ciphertext, &c_len, plaintext, *len);
+
+//   /* update ciphertext with the final remaining bytes */
+//   EVP_EncryptFinal_ex(e, ciphertext+c_len, &f_len);
+
+//   *len = c_len + f_len;
+//   return ciphertext;
+// }
+
+// /*
+//  * Decrypt *len bytes of ciphertext
+//  */
+// unsigned char *aes_decrypt(EVP_CIPHER_CTX *e, unsigned char *ciphertext, int *len)
+// {
+//   /* plaintext will always be equal to or lesser than length of ciphertext*/
+//   int p_len = *len, f_len = 0;
+//   unsigned char *plaintext = ( unsigned char *)malloc(p_len);
+  
+//   EVP_DecryptInit_ex(e, NULL, NULL, NULL, NULL);
+//   EVP_DecryptUpdate(e, plaintext, &p_len, ciphertext, *len);
+//   EVP_DecryptFinal_ex(e, plaintext+p_len, &f_len);
+
+//   *len = p_len + f_len;
+//   return plaintext;
+// }
+
+// void encrypt_json(const std::string& jsonstr, const char* key){
+// 	  /* "opaque" encryption, decryption ctx structures that libcrypto uses to record
+//      status of enc/dec operations */
+//   EVP_CIPHER_CTX en, de;
+
+//   /* 8 bytes to salt the key_data during key generation. This is an example of
+//      compiled in salt. We just read the bit pattern created by these two 4 byte 
+//      integers on the stack as 64 bits of contigous salt material - 
+//      ofcourse this only works if sizeof(int) >= 4 */
+//   unsigned int salt[] = {12345, 54321};
+//   unsigned char *key_data;
+//   int key_data_len, i;
+//   // char *input[] = {"a", "abcd", "this is a test", "this is a bigger test", 
+//   //                  "\nWho are you ?\nI am the 'Doctor'.\n'Doctor' who ?\nPrecisely!",
+//   //                  NULL};
+
+//   /* the key_data is read from the argument list */
+//   key_data = (unsigned char *)key;
+//   key_data_len = strlen(key);
+  
+//   /* gen key and iv. init the cipher ctx object */
+//   if (aes_init(key_data, key_data_len, (unsigned char *)&salt, &en, &de)) {
+//     printf("Couldn't initialize AES cipher\n");
+//     return  ;
+//   }
+
+//   /* encrypt and decrypt each input string and compare with the original */
+//   // for (i = 0; input[i]; i++) {
+//     char *plaintext;
+//     unsigned char *ciphertext;
+//     int olen, len;
+    
+//     /* The enc/dec functions deal with binary data and not C strings. strlen() will 
+//        return length of the string without counting the '\0' string marker. We always
+//        pass in the marker byte to the encrypt/decrypt functions so that after decryption 
+//        we end up with a legal C string */
+//     olen = len = jsonstr.length();// strlen(input[i])+1;
+    
+//     ciphertext = aes_encrypt(&en, (unsigned char *)jsonstr.c_str(), &len);
+
+//    // char* base64EncodeOutput;//, *text="Hello World";
+
+// // base64EncodeOutput = base64(ciphertext, len);
+//   // Base64Encode(ciphertext, len, &base64EncodeOutput);
+//   // printf("Output (base64): %s\n", base64EncodeOutput);
+
+// 	char * in = "4E6bGJJH19RqCp+iqF44xRq7Z8WxEJ/2V4rD0eqTTZ7Zix2+JVs5sERf2vG+MsWyhLHWD4EyXAEf4jsg4Nn5V1WqvTfOTlGTmlr3e8vxkI9uiBrILFQ7NS1o8N2dZ3mpxs34/fPnIWFvngRhE7FsVSN443MlVj1J4EsoODc3Qv8oDB61TV+Axigb2slIwp3q/zkYg+iLKPyDwN7Uw+5TNhEN+KWWz0j5qna/6NjEoKRTVZwPRlNi6UC5rygRLAaAdl7K2URLh5qlPALcxlqkkegqWJNKX4/e12fh/wNz1Llt+5rmv6ucD/bSgNPmO8UEPTFAZLXCfDfQ0zIQH3a4RAtgK10txGPZlySKgANlXDZKCglFqtGzZ4Ox9WeGeWX1owJOTDSoMUTZt8nDuPvjyo2LrijKAinPyswKweKD/9FfHaG56zUpziuE2q65fbTFlNsW4gA/1Hj+IJ6J56DuESkqFZcVnePDHIGrldfM4syKEnPS4B2Siq7PKockfp7D39+RLkOINea1rz8XKL11RW2t2A7l7sKHZ4rq690Wg6JQNXF0e3d0kEWds1Zzt2jhGoWlXPzBnQG1qNx2BIksDwvwKvnqZWDDH36w9O0B5seyy0HwwDwCB6C8oW5PXuW7mLDtAXPNxWew/rie1R+6LeKEAomZWtGl4SIzQAJ2JRQ=";
+//   //Decode From Base64
+//   unsigned char* base64DecodeOutput;
+//   size_t test;
+//   // base64DecodeOutput = unbase64((unsigned char*)in, strlen(in));
+//   // Base64Decode(base64EncodeOutput, &base64DecodeOutput, &test);
+//   Base64Decode(in, &base64DecodeOutput, &test);
+//   // printf("Output: %s %d\n", base64DecodeOutput, test);
+
+//     plaintext = (char *)aes_decrypt(&de, (unsigned char*)base64DecodeOutput, &len);
+
+//     // if (strncmp(plaintext, jsonstr.c_str(), olen)) 
+//     //   printf("FAIL: enc/dec failed for \"%s\"\n", jsonstr.c_str());
+//     // else 
+//       printf("OK: enc/dec ok for \"%s\"\n", plaintext);
+    
+//     // std::cout<<"\n"<<plaintext<<std::endl;
+//     free(ciphertext);
+//     free(plaintext);
+//   // }
+
+//   EVP_CIPHER_CTX_cleanup(&en);
+//   EVP_CIPHER_CTX_cleanup(&de);
+//   return ;
+
+// }
+
+// BOOST_AUTO_TEST_SUITE( load )
+// Number of messages to push
+//const uint64_t messages = 1e7;
+const uint64_t messages = 5;
+
+// Short message to send
+const std::string short_message = "hello world!";
+// Timeout for polling in milliseconds
+// const long max_poll_timeout = 500;
+const long thread_count = 2;
+const std::string payload = "{\"c_ids\":[\"34\"],\"ver\":\"\"}";
+// Timeout for polling in milliseconds
+const long max_poll_timeout = 3000;
+// const long thread_count = 1000;
+
+std::string getRegJson(const std::string& zid){
+	std::string jsonptr = "{\"c\":\"\",\"t\":\"\",\"mac\":\"48:3c:0c:8a:ad:13\",\"pub_key\":\"3%(+GVN%9n26aLPgW(RFN7+*Ff<wUpXVGBJLzkkp\",\"gcmid\":\"fo1f2PuePJs:APA91bFa97553GXhwzYSGqJBWYaiZ-_ntD-Aa1xZR4vXSdqqhhrA3vZD-_-xHLV35oqvkXifAKyPHw2s2Q7ru-0ozu4aliiDAiljyXLuTTft-uYG9D6e3IyyBLRneXHY4sIgjKTZh6qr\",\"dt\":\"1\",\"imei\":\"863066033343697\",\"uid\":\"863066033343697a47dc64e696d027d0\",\"imsi\":\"\",\"b\":\"HUAWEI\",\"m\":\"HUAWEI VNS-L31\",\"res\":\"xxhdpi\",\"av\":\"6.0\",\"uv\":\"1.15\",\"sdk_v\":\"2.1\",\"entid\":\"1\",\"e\":\"debug.zing@gmail.com\",\"a\":\"a47dc64e696d027d\",\"type\":\"reg\", \"zid\":";//%s \"}";
+		jsonptr = jsonptr+"\""+zid+"\"}";
+	// std::cout<<jsonptr<<std::endl;
+		return jsonptr;
+}
+
+void zidFileRead(std::string filename, long start, long end){
+	std::ifstream fin(filename);
+	if(fin){
+		fin.seekg(0, fin.end);
+		int length = fin.tellg();
+		std::cout<<"length of file: "<< length<<"\n";
+		fin.seekg(0, fin.beg);
+		for(int i = start; i < end; ++i ){
+			std::string line; 
+			getline(fin, line);
+			std::cout<<line<<"\n";
+		}
+
+		fin.seekg(17*3, fin.beg);
+		std::cout<<"=============================\n";
+		for(int i = start+3; i < end; ++i ){
+			std::string line; 
+			getline(fin, line);
+			std::cout<<line<<"\n";
+		}
+	// for(std::string line; getline(fin, line);)
+	// 	std::cout<<line<<"\n";
+
+	fin.close();
+}
+
+}
+
+void client_func(std::string filename, long start, long end){
+	boost::timer t;
+	zmqpp::context context;
+	char url[1000] = "http://52.55.204.235/api/decreg.php";
+	// int item = 10;
+	zmqpp::socket *dealer[thread_count];
+	zmqpp::poller poller;
+	auto pusher_func = [&]( int id, const std::string& identity ) {
+
+	// char url[1000] = "http://52.55.204.235/api/decreg.php";
+	// char json[2000] = "{\"c\":\"\",\"t\":\"\",\"mac\":\"48:3c:0c:8a:ad:13\",\"pub_key\":\"3%(+GVN%9n26aLPgW(RFN7+*Ff<wUpXVGBJLzkkp\",\"gcmid\":\"fo1f2PuePJs:APA91bFa97553GXhwzYSGqJBWYaiZ-_ntD-Aa1xZR4vXSdqqhhrA3vZD-_-xHLV35oqvkXifAKyPHw2s2Q7ru-0ozu4aliiDAiljyXLuTTft-uYG9D6e3IyyBLRneXHY4sIgjKTZh6qr\",\"dt\":\"1\",\"imei\":\"863066033343697\",\"uid\":\"863066033343697a47dc64e696d027d0\",\"imsi\":\"\",\"b\":\"HUAWEI\",\"m\":\"HUAWEI VNS-L31\",\"res\":\"xxhdpi\",\"av\":\"6.0\",\"uv\":\"1.15\",\"sdk_v\":\"2.1\",\"entid\":\"1\",\"e\":\"debug.zing@gmail.com\",\"a\":\"a47dc64e696d027d\",\"type\":\"reg\", \"zid\":\"ranjeet\"}";
+	char json[2000];
+	std::cout<<"id: "<<identity<<"\n";
+	sprintf(json,"%s",getRegJson(identity).c_str());	
+	if(registration(url, json, 80) > 0){
+
+
+
+		// dealer[id]= new zmqpp::socket(context, zmqpp::socket_type::dealer);
+		// dealer[id]->set(zmqpp::socket_option::identity, identity);
+		// dealer[id]->connect("tcp://52.203.194.245:5000");
+		// //dealer[id]->connect("tcp://52.55.204.235:5000");
+		// poller.add(*dealer[id]);
+		// // auto remaining = 5;//messages;
+		// zmqpp::message message;
+		// 	zmqpp::message out_msg(std::to_string(11), std::string(payload));
+		// 	dealer[id]->send(out_msg);
+	}
+	};
+	std::ifstream fin(filename);
+	if(!fin)
+	{
+		std::cerr<<"Error: ZID File doesn't exist: "<< filename<<"\n";
+		return;
+	}
+	fin.seekg(17*start, fin.beg);
+	std::thread th[thread_count];
+	for(int i = 0; i < thread_count; i++){
+		std::string line;
+		getline(fin, line);
+		th[i] =  std::thread(pusher_func, i, line);
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	}
+	fin.close();
+	for(int i = 0; i < thread_count; i++)
+		th[i].join();
+
+	uint64_t processed = 0;
+	std::string message;
+	zmqpp::message zmsg;
+	while(poller.poll(max_poll_timeout))
+	{
+		for(int i = 0; i < thread_count; i++){
+			if(poller.has_input(*dealer[i])){
+				dealer[i]->receive(zmsg);
+				if(zmsg.parts() == 2 && zmsg.size(0)==2 && zmsg.size(1)==620){
+					++processed;
+					 zmqpp::message message;
+					 zmqpp::message out_msg(std::to_string(12));
+					 dealer[i]->send(out_msg);
+				}
+				// for(uint i = 0; i <  zmsg.parts(); ++i)
+				// 	std::cout<< "rcv:size: "<<zmsg.size(i)<<" :"<<zmsg.get(i)<< std::endl;
+				// if(short_message == zmsg.get(1))
+				// ++processed;
+				// }
+			}
+		}
+
+	}
+
+
+	// std::cout<<"item: "<< item<<"\n";
+	// std::cout<<"-------------------5\n";
+	double elapsed_run = t.elapsed();
+
+	// // BOOST_CHECK_MESSAGE(thread.timed_join(boost::posix_time::milliseconds(max_poll_timeout)), "hung while joining pusher thread");
+	// assert(processed== messages*thread_count);
+
+	std::cout<<"ZMQPP: Copy String\n";
+	std::cout<<"Messages pushed    : " << processed<<std::endl;
+	std::cout<<"Run time           : " << elapsed_run << " seconds\n";
+	std::cout<<"Messages per second: " << processed / elapsed_run<<"\n";
+	for(int i = 0; i < thread_count; i++)
+ 	 	delete dealer[i];
+  	context.terminate();
+	
+}
+
+// void load_test(std::string msg)
+// // BOOST_AUTO_TEST_CASE( push_messages )
+// {
+// 	boost::timer t;
+// 	// std::cout<<"-------------------1\n";
+// 	zmqpp::context context;
+
+// 	zmqpp::socket server(context, zmqpp::socket_type::router);
+// 	server.bind("tcp://*:55555");
+
+// 	// std::cout<<"-------------------2\n";
+// 	auto pusher_func = [&context](void) {
+// 	zmqpp::socket dealer(context, zmqpp::socket_type::dealer);
+// 	dealer.connect("tcp://localhost:55555");
+// 		auto remaining = messages;
+// 		zmqpp::message message;
+
+// 		do
+// 		{
+// 			message.add(short_message);
+// 			dealer.send(message);
+// 			// std::cout<<"pusher_func-------------------Sent:"<<remaining<<"\n";
+
+// 		}
+// 		while(--remaining > 0);
+// 	};
+
+// 	// std::cout<<"-------------------3\n";
+// 	zmqpp::poller poller;
+// 	poller.add(server);
+// 	// std::cout<<"-------------------4\n";
+
+// 	std::thread th[thread_count];
+// 	for(int i = 0; i < thread_count; i++)
+// 		th[i] =  std::thread(pusher_func);
+// 	// std::cout<<"-------------------5\n";
+
+// 	uint64_t processed = 0;
+// 	std::string message;
+// 	zmqpp::message zmsg;
+// 	while(poller.poll(max_poll_timeout))
+// 	{
+// 		//BOOST_REQUIRE(poller.has_input(puller));
+// 		if(poller.has_input(server)){
+// 		server.receive(zmsg);
+// 			if (zmsg.parts() == 2){
+// 					// std::cout<<"server_worker: worker> zmqpp message: size: "<< zmsg.parts()<< std::endl;
+// 					// for(uint i = 0; i <  zmsg.parts(); ++i)
+// 						// std::cout<< "server_worker:size: "<<zmsg.size(i)<<" :"<<zmsg.get(i)<< std::endl;
+// 				if(short_message == zmsg.get(1))
+// 					++processed;
+// 				}
+// 		// std::cout<<"-------------------6"<<message<<"\n";
+		
+
+// 		}
+// 	}
+
+// 	for(int i = 0; i < thread_count; i++)
+// 		th[i].join();
+// 	// std::cout<<"-------------------5\n";
+// 	double elapsed_run = t.elapsed();
+
+// 	// BOOST_CHECK_MESSAGE(thread.timed_join(boost::posix_time::milliseconds(max_poll_timeout)), "hung while joining pusher thread");
+// 	assert(processed== messages*thread_count);
+
+// 	std::cout<<"ZMQPP: Copy String\n";
+// 	std::cout<<"Messages pushed    : " << processed<<std::endl;
+// 	std::cout<<"Run time           : " << elapsed_run << " seconds\n";
+// 	std::cout<<"Messages per second: " << processed / elapsed_run<<"\n";
+	
+// }
+// void load_test_thread(std::string msg)
+// // BOOST_AUTO_TEST_CASE( push_messages )
+// {
+// 	boost::timer t;
+// 	// std::cout<<"-------------------1\n";
+// 	zmqpp::context context;
+
+// 	zmqpp::socket server(context, zmqpp::socket_type::router);
+// 	server.bind("tcp://*:55555");
+
+// 	// std::cout<<"-------------------2\n";
+// 	auto pusher_func = [&context](void) {
+// 	zmqpp::socket dealer(context, zmqpp::socket_type::dealer);
+// 	dealer.connect("tcp://localhost:55555");
+// 		auto remaining = messages;
+// 		zmqpp::message message;
+
+// 		do
+// 		{
+// 			message.add(short_message);
+// 			dealer.send(message);
+// 			// std::cout<<"pusher_func-------------------Sent:"<<remaining<<"\n";
+
+// 		}
+// 		while(--remaining > 0);
+// 	};
+
+// 	// std::cout<<"-------------------3\n";
+// 	zmqpp::poller poller;
+// 	poller.add(server);
+// 	// std::cout<<"-------------------4\n";
+
+// 	std::thread th[thread_count];
+// 	for(int i = 0; i < thread_count; i++)
+// 		th[i] =  std::thread(pusher_func);
+// 	// std::cout<<"-------------------5\n";
+
+// 	uint64_t processed = 0;
+// 	std::string message;
+// 	zmqpp::message zmsg;
+// 	while(poller.poll(max_poll_timeout))
+// 	{
+// 		//BOOST_REQUIRE(poller.has_input(puller));
+// 		if(poller.has_input(server)){
+// 		server.receive(zmsg);
+// 			if (zmsg.parts() == 2){
+// 					// std::cout<<"server_worker: worker> zmqpp message: size: "<< zmsg.parts()<< std::endl;
+// 					// for(uint i = 0; i <  zmsg.parts(); ++i)
+// 						// std::cout<< "server_worker:size: "<<zmsg.size(i)<<" :"<<zmsg.get(i)<< std::endl;
+// 				if(short_message == zmsg.get(1))
+// 					++processed;
+// 				}
+// 		// std::cout<<"-------------------6"<<message<<"\n";
+		
+
+// 		}
+// 	}
+
+// 	for(int i = 0; i < thread_count; i++)
+// 		th[i].join();
+// 	// std::cout<<"-------------------5\n";
+// 	double elapsed_run = t.elapsed();
+
+// 	// BOOST_CHECK_MESSAGE(thread.timed_join(boost::posix_time::milliseconds(max_poll_timeout)), "hung while joining pusher thread");
+// 	assert(processed== messages*thread_count);
+
+// 	std::cout<<"ZMQPP: Copy String\n";
+// 	std::cout<<"Messages pushed    : " << processed<<std::endl;
+// 	std::cout<<"Run time           : " << elapsed_run << " seconds\n";
+// 	std::cout<<"Messages per second: " << processed / elapsed_run<<"\n";
+	
+// }
+// void load_test_basic(std::string msg)
+// // BOOST_AUTO_TEST_CASE( push_messages )
+// {
+// 	boost::timer t;
+// 	// std::cout<<"-------------------1\n";
+// 	zmqpp::context context;
+// 	zmqpp::socket dealer(context, zmqpp::socket_type::dealer);
+// 	dealer.connect("tcp://localhost:55555");
+
+// 	zmqpp::socket server(context, zmqpp::socket_type::router);
+// 	server.bind("tcp://*:55555");
+
+// 	// std::cout<<"-------------------2\n";
+// 	auto pusher_func = [&dealer](void) {
+// 		auto remaining = messages;
+// 		zmqpp::message message;
+
+// 		do
+// 		{
+// 			message.add(short_message);
+// 			dealer.send(message);
+// 			// std::cout<<"pusher_func-------------------Sent:"<<remaining<<"\n";
+
+// 		}
+// 		while(--remaining > 0);
+// 	};
+
+// 	// std::cout<<"-------------------3\n";
+// 	zmqpp::poller poller;
+// 	poller.add(server);
+// 	// std::cout<<"-------------------4\n";
+
+// 	boost::thread thread(pusher_func);
+// 	// std::cout<<"-------------------5\n";
+
+// 	uint64_t processed = 0;
+// 	std::string message;
+// 	zmqpp::message zmsg;
+// 	while(poller.poll(max_poll_timeout))
+// 	{
+// 		//BOOST_REQUIRE(poller.has_input(puller));
+// 		if(poller.has_input(server)){
+// 		server.receive(zmsg);
+// 			if (zmsg.parts() == 2){
+// 					// std::cout<<"server_worker: worker> zmqpp message: size: "<< zmsg.parts()<< std::endl;
+// 					// for(uint i = 0; i <  zmsg.parts(); ++i)
+// 						// std::cout<< "server_worker:size: "<<zmsg.size(i)<<" :"<<zmsg.get(i)<< std::endl;
+// 				if(short_message == zmsg.get(1))
+// 					++processed;
+// 				}
+// 		// std::cout<<"-------------------6"<<message<<"\n";
+		
+
+// 		}
+// 	}
+
+// 	double elapsed_run = t.elapsed();
+
+// 	// BOOST_CHECK_MESSAGE(thread.timed_join(boost::posix_time::milliseconds(max_poll_timeout)), "hung while joining pusher thread");
+// 	assert(processed== messages);
+
+// 	std::cout<<"ZMQPP: Copy String\n";
+// 	std::cout<<"Messages pushed    : " << processed<<std::endl;
+// 	std::cout<<"Run time           : " << elapsed_run << " seconds\n";
+// 	std::cout<<"Messages per second: " << processed / elapsed_run<<"\n";
+	
+// }
+// void load_test_pull(std::string msg)
+// // BOOST_AUTO_TEST_CASE( push_messages )
+// {
+// 	boost::timer t;
+// 	// std::cout<<"-------------------1\n";
+// 	zmqpp::context context;
+// 	zmqpp::socket pusher(context, zmqpp::socket_type::push);
+// 	pusher.connect("tcp://localhost:55555");
+
+// 	zmqpp::socket puller(context, zmqpp::socket_type::pull);
+// 	puller.bind("tcp://*:55555");
+
+// 	// std::cout<<"-------------------2\n";
+// 	auto pusher_func = [&pusher](void) {
+// 		auto remaining = messages;
+// 		zmqpp::message message;
+
+// 		do
+// 		{
+// 			message.add(short_message);
+// 			pusher.send(message);
+// 			// std::cout<<"pusher_func-------------------Sent:"<<remaining<<"\n";
+
+// 		}
+// 		while(--remaining > 0);
+// 	};
+
+// 	// std::cout<<"-------------------3\n";
+// 	zmqpp::poller poller;
+// 	poller.add(puller);
+// 	// std::cout<<"-------------------4\n";
+
+// 	boost::thread thread(pusher_func);
+// 	// std::cout<<"-------------------5\n";
+
+// 	uint64_t processed = 0;
+// 	std::string message;
+// 	while(poller.poll(max_poll_timeout))
+// 	{
+// 		//BOOST_REQUIRE(poller.has_input(puller));
+// 		if(poller.has_input(puller)){
+// 		puller.receive(message);
+// 		// std::cout<<"-------------------6"<<message<<"\n";
+// 		if(short_message == message)
+// 		++processed;
+
+// 		}
+// 	}
+
+// 	double elapsed_run = t.elapsed();
+
+// 	// BOOST_CHECK_MESSAGE(thread.timed_join(boost::posix_time::milliseconds(max_poll_timeout)), "hung while joining pusher thread");
+// 	assert(processed== messages);
+
+// 	std::cout<<"ZMQPP: Copy String\n";
+// 	std::cout<<"Messages pushed    : " << processed;
+// 	std::cout<<"Run time           : " << elapsed_run << " seconds";
+// 	std::cout<<"Messages per second: " << processed / elapsed_run<<"\n";
+	
+// }
+void boostProgressBar(){
+	const unsigned long expected_count=20;
+    boost::progress_display show_progress( expected_count );
+    for(int i=0;i!=expected_count;++i)
+    {
+        volatile std::vector<int> v(1024*1024*128);
+        ++show_progress;
+    }
+    // return 0;
+}
+void progresBar(){
+	float progress = 0.0;
+while (progress < 1.0) {
+    int barWidth = 70;
+
+    std::cout << "[";
+    int pos = barWidth * progress;
+    for (int i = 0; i < barWidth; ++i) {
+        if (i < pos) std::cout << "=";
+        else if (i == pos) std::cout << ">";
+        else std::cout << " ";
+    }
+    std::cout << "] " << int(progress * 100.0) << " %\r";
+    std::cout.flush();
+
+    progress += 0.16; // for demonstration only
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+std::cout << std::endl;
+}
+int main(int argc, char const *argv[]){
+	// arg_test(argc, argv);
+	std::cout<<"Hello World, Krishna calling you.\n";
+	// load_test_thread("hello");
+	// progresBar();
+	// boostProgressBar();
+	 client_func("../zids/zid0.txt", 0 , 1);
+// zidFileRead("../zids/zid0.txt", 0 , 10);
+
+	std::string filename = "../zids/zid0.txt";
+	if (argc > 1)
+	{
+		std::cout<<argv[1]<<std::endl;
+		filename = "../zids/"+std::string(argv[1]);
+	}
+	std::cout<<"filename: "<<filename<<std::endl;
+	// char url[1000] = "http://52.55.204.235/api/decreg.php";
+	// char json[2000] = "{\"c\":\"\",\"t\":\"\",\"mac\":\"48:3c:0c:8a:ad:13\",\"pub_key\":\"3%(+GVN%9n26aLPgW(RFN7+*Ff<wUpXVGBJLzkkp\",\"gcmid\":\"fo1f2PuePJs:APA91bFa97553GXhwzYSGqJBWYaiZ-_ntD-Aa1xZR4vXSdqqhhrA3vZD-_-xHLV35oqvkXifAKyPHw2s2Q7ru-0ozu4aliiDAiljyXLuTTft-uYG9D6e3IyyBLRneXHY4sIgjKTZh6qr\",\"dt\":\"1\",\"imei\":\"863066033343697\",\"uid\":\"863066033343697a47dc64e696d027d0\",\"imsi\":\"\",\"b\":\"HUAWEI\",\"m\":\"HUAWEI VNS-L31\",\"res\":\"xxhdpi\",\"av\":\"6.0\",\"uv\":\"1.15\",\"sdk_v\":\"2.1\",\"entid\":\"1\",\"e\":\"debug.zing@gmail.com\",\"a\":\"a47dc64e696d027d\",\"type\":\"reg\", \"zid\":\"ranjeet\"}";
+
+	// registration(url, json, 80);
+	
+	// std::cout<<getRegJson("gopinath")<<std::endl;
+	// std::string key = "YXNuc2prc2RranNkc2Rqd3VxaTMyOTg5";
+	// encrypt_json(getRegJson("gopinath"), "YXNuc2prc2RranNkc2Rqd3VxaTMyOTg5");
+	// int id = fork();
+/*	if(0 ==fork()){
+		std::cout<<"Parent:\n";
+	if(0 ==fork()){
+		std::cout<<"Parent:\n";
+	if(0 ==fork()){
+		std::cout<<"Parent:\n";
+	if(0 ==fork()){
+		std::cout<<"Parent:\n";
+		client_func(filename, 0 , thread_count);
+	} else{
+		std::cout<<"Child: ";
+		client_func(filename, thread_count*2 , thread_count*3);
+	}
+		client_func(filename,  thread_count*3 , thread_count*4);
+	} else{
+		std::cout<<"Child: ";
+		client_func(filename, thread_count*4 , thread_count*5);
+	}
+		 client_func(filename,  thread_count*6 , thread_count*7);
+	} else{
+		std::cout<<"Child: ";
+		 client_func(filename, thread_count*7 , thread_count*8);
+	}
+		 client_func(filename,  thread_count*8 , thread_count*9);
+	} else{
+		std::cout<<"Child: ";
+		 client_func(filename, thread_count*9 , thread_count*10);
+	}
+
+*/	std::cout<<"exit...\n";
+	return 0;
+}
+
+
