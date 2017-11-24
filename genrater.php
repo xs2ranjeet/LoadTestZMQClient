@@ -12,7 +12,7 @@ while ($start <= $end) {
     shell_exec(sprintf("%s > %s 2>&1 & echo $! >> %s", $command, $outputfile, $pidfile));
     print("\n".date("Y-m-d H:i:s")." - Running ".($start));
 	//exec($command);
-	if($start % 25000 == 0)
+	if($start % 25001 == 0)
 		sleep(60);
 }
 ?>
