@@ -2,3 +2,6 @@
 	path = tacopie
 	url = https://github.com/Cylix/tacopie.git
 	branch  = master
+[submodule "cpp_redis"]
+	path = cpp_redis
+	url = https://github.com/xs2ranjeet/cpp_redis
